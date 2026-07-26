@@ -23,6 +23,7 @@
 10. [非功能性需求](#10-非功能性需求)
 11. [项目规划与里程碑](#11-项目规划与里程碑)
 12. [风险与对策](#12-风险与对策)
+13. [Agnes AI 接入调研清单](#13-agnes-ai-接入调研清单开发前必须完成)
 
 ---
 
@@ -111,7 +112,7 @@ AI 漫剧制作平台（MVP-Lite）
 │   └── 画面重新生成（重试即可，不做局部修改）
 │   ✗ 不做：时间轴拖拽、局部重绘、角色替换
 ├── 资源库模块（极简）
-│   └── 风格预设（硬编码几个即可）
+│   └── 风格预设（硬编码 4 个：日漫 / 国漫 / 美漫 / 写实，创建项目时选）
 │   ✗ 不做：音乐库、音效库、角色库
 ├── 渲染导出模块
 │   ├── 视频合成（固定 1080p 竖屏或横屏其一）
@@ -178,18 +179,25 @@ AI 漫剧制作平台（MVP-Lite）
 - 固定宽高比（建议竖屏 9:16，适配短视频平台）。
 - 支持整批生成 + 单张"重新生成"。不做局部修改、放大。
 
-#### 3.2.7 视频合成（视频 AI 或静态合成，二选一）
+#### 3.2.7 视频合成（直接走 AI 视频）
 
-> 推荐先做"静态合成"跑通链路，再叠加 AI 视频生成。
+> 本期确定直接调用 Agnes AI 视频模型生成动态片段，不做静态合成兜底。
 
-- **方案 A（推荐先做）：静态合成**
-  - 静态画面 + Ken Burns 运镜（缩放/平移）+ 简单转场（淡入淡出）+ 字幕。
-  - 后端 FFmpeg 拼接为 mp4。
-  - 优点：不依赖视频 AI，链路短、成本低、可快速验证。
-- **方案 B（后续叠加）：AI 视频生成**
-  - 调用 Agnes AI 视频模型，基于静态画面 + Prompt 生成动态片段。
-  - 再拼接 + 字幕。
-- 输出固定 1080p 竖屏 mp4，提供下载链接。不做多分辨率。
+**流程**：
+1. 每个分镜的画面图（frame_image）+ 分镜 Prompt → 调用 Agnes AI 视频模型 → 生成 3~5 秒动态片段。
+2. 所有分镜片段生成完成后，后端用 FFmpeg 拼接为完整 mp4。
+3. 拼接时叠加字幕（来自分镜台词）、简单转场（淡入淡出）。
+4. 输出固定 1080p 竖屏 mp4，提供下载链接。
+
+**任务拆分**：
+- `VideoClipJob[]`：每个分镜一个视频生成任务，并行执行（受全局并发上限约束）。
+- `ComposeJob`：所有片段就绪后触发，FFmpeg 拼接 + 字幕。
+
+**注意事项**：
+- 视频生成耗时长（单片段可能 30s~2min），前端必须有明确进度反馈。
+- 失败重试：单片段失败可单独重试，不必整集重来。
+- 全局并发上限建议 ≤ 3，避免 Agnes AI 限流或账单失控。
+- 若 Agnes AI 视频模型对"图生视频"不支持，退化为"文生视频"（仅用 Prompt，不用图），需在调研阶段确认（见第 13 章）。
 
 ### 3.3 辅助功能
 
@@ -218,29 +226,29 @@ AI 漫剧制作平台（MVP-Lite）
 
 ```
 登录（用户名+密码）
-  └─> 创建项目
+  └─> 创建项目（选画风）
         └─> 粘贴小说文本
               └─> [文本AI] 生成剧本
                     └─> 用户编辑剧本
                           └─> [文本AI] 拆解分镜（+ 抽取角色描述）
                                 └─> [图像AI] 逐分镜生成画面（并行）
                                       └─> 用户可单张重新生成
-                                            └─> 合成视频（静态合成 / AI 视频）
-                                                  └─> 下载 mp4
+                                            └─> [视频AI] 逐分镜生成动态片段（并行）
+                                                  └─> FFmpeg 拼接 + 字幕
+                                                        └─> 下载 mp4
 ```
 
 > 比起 v1.0，去掉"角色参考图生成"独立步骤（合并进分镜 Prompt）、去掉音乐/发布环节。
 
-### 4.2 任务编排流程（简化）
+### 4.2 任务编排流程
 
 ```
 Project Job
   ├─> ScriptJob（剧本生成） ── 串行 ──> StoryboardJob（分镜拆解，含角色描述）
-  ├─> FrameImageJob[]（分镜画面，并行）
-  └─> ComposeJob（合成，依赖所有 FrameImage）
+  ├─> FrameImageJob[]（分镜画面，并行，受全局并发上限约束）
+  ├─> VideoClipJob[]（视频片段，依赖对应 FrameImage，并行）
+  └─> ComposeJob（合成，依赖所有 VideoClip）
 ```
-
-> 视频片段生成（VideoClipJob）本期用静态合成代替，不单独建任务。
 
 任务状态机（简化）：
 ```
@@ -251,7 +259,7 @@ PENDING -> RUNNING -> SUCCESS
 
 ### 4.3 状态流转
 
-项目状态（简化）：`DRAFT` → `SCRIPTING` → `STORYBOARDING` → `IMAGE_GENERATING` → `COMPOSING` → `READY`
+项目状态（简化）：`DRAFT` → `SCRIPTING` → `STORYBOARDING` → `IMAGE_GENERATING` → `VIDEO_GENERATING` → `COMPOSING` → `READY`
 
 用户可在任意阶段回退编辑（修改后重新触发对应步骤）。
 
@@ -354,18 +362,19 @@ aigc-gateway
 
 ```
 user 1───* project 1───* storyboard 1───* frame_image
+                                      └─* video_clip
                 project 1───* task_log
-                (本期不建 episode / character / video_clip / membership / quota_record 独立表)
+                (本期不建 episode / character / membership / quota_record 独立表)
 ```
 
 > 简化说明：
 > - **不建 episode 表**：本期单集，剧本/分镜直接挂在 project 下。
 > - **不建 character 表**：角色描述由 AI 在分镜阶段直接写入 Prompt，不单独维护。
-> - **不建 video_clip 表**：静态合成时直接由 frame_image 拼接，不存独立片段。
+> - **保留 video_clip 表**：AI 视频片段需独立存储 URL 与状态，供 FFmpeg 拼接。
 > - **不建 membership / quota_record 表**：本期不做付费与配额。
 > - 风格预设硬编码在代码 / 配置文件，不建表。
 
-### 6.2 核心表结构（共 4 张表）
+### 6.2 核心表结构（共 5 张表）
 
 #### 6.2.1 `user` 用户表
 
@@ -425,14 +434,28 @@ user 1───* project 1───* storyboard 1───* frame_image
 
 > 不存 selected（一个分镜就一张图，成功即用）。
 
-#### 6.2.5 `task_log` 任务日志表
+#### 6.2.5 `video_clip` 视频片段表
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | bigint PK | |
+| storyboard_id | bigint FK | |
+| frame_image_id | bigint FK | 输入图 |
+| video_url | varchar(256) | AI 生成的片段 URL |
+| duration_sec | decimal(5,1) | 片段时长 |
+| status | varchar(16) | GENERATING/SUCCESS/FAILED |
+| created_at | datetime | |
+
+> 一个分镜一个片段，成功即用于最终拼接。
+
+#### 6.2.6 `task_log` 任务日志表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | bigint PK | |
 | user_id | bigint FK | |
 | project_id | bigint FK | |
-| biz_type | varchar(32) | SCRIPT/STORYBOARD/FRAME/COMPOSE |
+| biz_type | varchar(32) | SCRIPT/STORYBOARD/FRAME/VIDEO/COMPOSE |
 | biz_id | bigint | 关联业务 ID |
 | model | varchar(64) | 调用的 Agnes 模型 |
 | provider_task_id | varchar(128) | Agnes 返回的任务 ID |
@@ -451,6 +474,7 @@ user 1───* project 1───* storyboard 1───* frame_image
 - `task_log`：`(user_id, status, created_at)`、`(biz_type, biz_id)`
 - `storyboard`：`(project_id, seq)`
 - `frame_image`：`(storyboard_id, status)`
+- `video_clip`：`(storyboard_id, status)`
 - `project`：`(user_id, status)`
 
 ---
@@ -515,10 +539,13 @@ user 1───* project 1───* storyboard 1───* frame_image
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/projects/{id}/frames/generate` | 整批生成分镜画面（返回 taskId） |
-| POST | `/storyboard/{id}/frame/regenerate` | 单张重新生成 |
+| POST | `/storyboard/{id}/frame/regenerate` | 单张画面重新生成 |
 | GET | `/projects/{id}/frames` | 获取全部分镜画面 |
+| POST | `/projects/{id}/videos/generate` | 整批生成视频片段（返回 taskId，依赖画面完成） |
+| POST | `/storyboard/{id}/video/regenerate` | 单个片段重新生成 |
+| GET | `/projects/{id}/videos` | 获取全部视频片段 |
 
-> 不做多张候选、不做 select、不做视频片段单独生成（合成时直接用静态图）。
+> 视频片段依赖对应画面图，未生成画面的分镜会被跳过并提示。
 
 #### 7.2.5 渲染导出
 
@@ -622,9 +649,10 @@ GET /api/v1/tasks/tsk_20260726_0001
 │      │  ② 剧本展示（JSON 结构化卡片，可编辑）              │
 │ 1原文│  ③ 分镜列表（卡片：Prompt / 台词 / 时长）           │
 │ 2剧本│  ④ 画面网格（每分镜一张图 + 重新生成按钮）          │
-│ 3分镜│  ⑤ 视频预览（video 标签播放最终 mp4）               │
-│ 4画面│                                                     │
+│ 3分镜│  ⑤ 视频片段网格（每分镜一段 mp4 + 重新生成按钮）    │
+│ 4画面│  ⑥ 最终视频预览（video 标签播放拼接后 mp4）         │
 │ 5视频│                                                     │
+│ 6导出│                                                     │
 │      │                                                     │
 ├──────┴─────────────────────────────────────────────────────┤
 │  底部：当前任务进度条（轮询 /tasks/{id}）                   │
@@ -636,8 +664,9 @@ GET /api/v1/tasks/tsk_20260726_0001
 - **原文→剧本**：粘贴文本 → 点"生成剧本" → 步骤推进 → 剧本以卡片形式展示，可编辑后保存。
 - **剧本→分镜**：点"生成分镜" → 中间切换为分镜卡片列表，每张卡可编辑 Prompt、台词、时长。
 - **分镜→画面**：点"批量生成画面" → 网格视图显示每分镜一张图，单张可"重新生成"。
-- **画面→视频**：点"合成视频" → 后端 FFmpeg 拼接 → 完成后显示 video 播放器 + 下载按钮。
-- **进度**：底部固定任务进度条，前端每 2s 轮询 `/tasks/{id}`（WebSocket 可后续替换）。
+- **画面→视频片段**：点"批量生成视频" → 网格视图显示每分镜一段 mp4（可在线预览），单个可"重新生成"。
+- **视频片段→最终视频**：点"合成视频" → 后端 FFmpeg 拼接所有片段 + 字幕 → 完成后显示 video 播放器 + 下载按钮。
+- **进度**：底部固定任务进度条，前端每 2s 轮询 `/tasks/{id}`（视频批量任务进度 = 已完成片段数 / 总片段数）。
 
 ### 8.4 前端技术要点（精简）
 
@@ -677,9 +706,10 @@ GET /api/v1/tasks/tsk_20260726_0001
 | --- | --- | --- |
 | 文本生成（剧本/分镜） | Agnes AI 文本模型 | ✅ |
 | 图像生成（分镜画面） | Agnes AI 图像模型 | ✅ |
-| 视频生成 | Agnes AI 视频模型 | ⚠️ 可选，先做静态合成 |
+| 视频生成（动态片段） | Agnes AI 视频模型 | ✅ |
 
 > Agnes AI 密钥、模型版本、base URL 写在 `application.yml`。
+> ⚠️ 由于暂无完整文档，开发前需先按第 13 章清单做接口调研/探活。
 
 ### 9.3 前端
 
@@ -729,7 +759,9 @@ GET /api/v1/tasks/tsk_20260726_0001
 
 | 风险 | 影响 | 对策 |
 | --- | --- | --- |
-| Agnes AI 视频模型成本高/速度慢 | 验证受阻 | 本期用静态合成代替，先跑通链路 |
+| **Agnes AI 无完整文档** | 无法对接，阻塞开发 | 开发前先按第 13 章做接口调研/探活，必要时联系对方拿文档 |
+| **视频模型不支持"图生视频"** | 链路断 | 调研确认；若仅支持"文生视频"，则视频任务只用 Prompt 不用图 |
+| Agnes AI 视频模型成本高/速度慢 | 验证成本高、体验差 | 全局并发上限 ≤3；单集分镜数限制（如 ≤10）；前端明确进度反馈 |
 | 角色一致性差 | 产出质量低 | 暂不强求，把角色外貌描述写进每张分镜 Prompt |
 | AI 结果不可控 | 用户流失 | 全流程可重新生成，分镜 Prompt 可手动编辑 |
 | 并发误操作打爆账单 | 成本风险 | 后端全局并发上限 + 单用户串行提交 |
@@ -781,15 +813,87 @@ GET /api/v1/tasks/tsk_20260726_0001
 ## 附录 C：M0 验收清单
 
 - [ ] 用户能注册、登录（用户名 + 密码）
-- [ ] 能创建项目，粘贴小说文本
+- [ ] 能创建项目（选画风），粘贴小说文本
 - [ ] 一键生成剧本（调用 Agnes AI 文本模型）
 - [ ] 一键生成分镜（含 Prompt、台词、时长）
 - [ ] 一键批量生成分镜画面（调用 Agnes AI 图像模型）
 - [ ] 单张画面可重新生成
-- [ ] 一键合成视频（FFmpeg 静态合成 + 字幕）
+- [ ] 一键批量生成视频片段（调用 Agnes AI 视频模型）
+- [ ] 单个视频片段可重新生成
+- [ ] 一键合成最终视频（FFmpeg 拼接 + 字幕）
 - [ ] 能下载最终 mp4
 - [ ] 任务进度有可视化展示
 - [ ] 全流程在一个页面内完成
+
+---
+
+## 13. Agnes AI 接入调研清单（开发前必须完成）
+
+> 现状：已有 Agnes AI 密钥，但**没有完整接口文档**。以下为开发前必须探明的项，建议用一个独立 Spring Boot 测试工程或 Postman 集合逐项验证，确认后再进入正式开发。
+
+### 13.1 通用信息
+
+| 项 | 待确认 | 备注 |
+| --- | --- | --- |
+| Base URL | `https://?` | 文本/图像/视频是否同一域名 |
+| 鉴权方式 | Header `Authorization: Bearer <key>`？自定义 header？ | |
+| 是否兼容 OpenAI 协议 | 是 / 否 | 若兼容，可直接用 OpenAI SDK |
+| 限流策略 | QPS / 并发上限 / 日配额 | 影响全局并发上限设置 |
+| 计费方式 | 按次 / 按时长 / 按字符 / 按token | 影响成本预估 |
+| 错误码规范 | 4xx/5xx 含义、限流错误码 | 用于重试判断 |
+
+### 13.2 文本模型
+
+| 项 | 待确认 |
+| --- | --- |
+| 模型名 / model 参数值 | 如 `agnes-text-pro` |
+| 接口路径 | `/v1/chat/completions`？自定义？ |
+| 是否流式 | SSE 支持？本期建议非流式 |
+| 最大输入 token | 影响小说原文长度上限（当前 5000 字） |
+| 最大输出 token | 影响剧本/分镜 JSON 长度 |
+| 是否支持 JSON 模式 | `response_format=json_object`？保证剧本结构化输出 |
+| 输入示例 / 输出示例 | 各取一条真实样本存档 |
+
+### 13.3 图像模型
+
+| 项 | 待确认 |
+| --- | --- |
+| 模型名 | |
+| 接口路径 | `/v1/images/generations`？自定义？ |
+| 调用模式 | 文生图 / 图生图 / 图+文生图 |
+| 是否支持 reference image | 决定角色一致性方案 |
+| 输入参数 | prompt、negative_prompt、width、height、seed、num_inference_steps |
+| 宽高比支持 | 9:16 竖屏是否原生支持 |
+| 输出格式 | 返回 URL 还是 base64？是否需要下载存储 |
+| 同步 / 异步 | 同步返回？还是提交任务+轮询？ |
+| 单次生成耗时 | 用于估算批量任务总时长 |
+
+### 13.4 视频模型（最关键，风险最高）
+
+| 项 | 待确认 | 影响 |
+| --- | --- | --- |
+| 模型名 | | |
+| 接口路径 | | |
+| **调用模式** | **图生视频（image+prompt→video）/ 文生视频（prompt→video）** | **决定 video_clip 是否需要 frame_image_id** |
+| 输入参数 | image_url、prompt、duration、resolution、fps | |
+| 输出时长 | 单段 3s / 5s / 10s？ | 影响分镜建议时长 |
+| 输出分辨率 | 1080p？720p？竖屏？ | |
+| 调用方式 | **同步 / 异步（提交+轮询）** | 异步需设计轮询逻辑 |
+| 单段生成耗时 | 30s？2min？更长？ | 影响用户等待体验与并发上限 |
+| 输出格式 | mp4 / gif / webp | 影响 FFmpeg 拼接命令 |
+| 输出获取方式 | URL 还是 base64 | |
+| 是否有内容审核拦截 | 违规内容如何返回 | |
+
+### 13.5 调研产出物
+
+调研完成后，需输出以下内容供正式开发使用：
+
+1. `agnes-ai-api-spec.md`：三类模型的接口规格（路径、参数、响应、错误码）。
+2. `agnes-ai-postman-collection.json`：Postman 集合，含可运行的样例请求。
+3. `agnes-ai-cost-estimate.md`：单集（按 10 分镜）的 token/次数/时长成本估算。
+4. `application.yml` 模板：base_url、key、各模型名、超时、并发上限的配置项。
+
+> **结论**：13.4 视频模型的"调用模式"和"同步/异步"是本次调研的两个决定性问题，答案直接决定 `video_clip` 表结构和 `VideoClipJob` 的实现方式。建议优先验证视频模型。
 
 ---
 
