@@ -1,0 +1,122 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: comic-backend
+  profiles:
+    active: dev
+  # MySQL 数据源配置
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:comic_db}?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  # 启动时不再自动建表，schema.sql 由 DBA 手动执行（或配置 sql.init.mode=always 自动执行）
+  sql:
+    init:
+      mode: never
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+  # JSON 序列化
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+    default-property-inclusion: non_null
+  # 文件上传
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+# JWT 配置
+jwt:
+  # M0 简化：直接写死 secret，生产环境应改为环境变量注入
+  secret: ${JWT_SECRET:Y29taWMtYmFja2VuZC1qd3Qtc2VjcmV0LWtleS1mb3ItYWktY29taWMtbWFrZS13ZWJzaXRlLW12cC0yMDI2}
+  # token 有效期（小时）
+  expire-hours: 72
+  header: Authorization
+  prefix: "Bearer "
+
+# Agnes AI 接入配置（参考文档第 15.8 章）
+agnes:
+  ai:
+    base-url: https://apihub.agnes-ai.com/v1
+    timeout-sec: 120
+    # Key 池：支持从环境变量注入多个 Key
+    # plan 取值：free / token-plan / enterprise
+    keys:
+      - name: agnes-key-01
+        api-key: ${AGNES_KEY_01:}
+        plan: token-plan
+      - name: agnes-key-02
+        api-key: ${AGNES_KEY_02:}
+        plan: token-plan
+      - name: agnes-key-03
+        api-key: ${AGNES_KEY_03:}
+        plan: free
+    # 限流策略
+    rate-limit:
+      cool-down-sec: 60
+      retry-on-429: true
+      max-retries: 3
+    # 各 plan 的 RPM 上限（按模型类型分别计数，见文档 15.4）
+    rpm:
+      free:
+        text: 20
+        image: 30
+        video: 1
+      token-plan:
+        text: 1000
+        image: 100
+        video: 5
+      enterprise:
+        text: 1000
+        image: 100
+        video: 5
+    # 模型名
+    models:
+      text: agnes-2.0-flash
+      image: agnes-image-2.1-flash
+      video: agnes-video-v2.0
+    # 视频轮询参数（见文档 16.4）
+    video:
+      poll-interval-ms: 10000
+      max-poll-duration-ms: 300000   # 5 分钟
+      query-path: /agnesapi          # 查询结果路径：GET {base-url}{query-path}?video_id=xxx
+
+# 本地存储配置（M0 用本地磁盘替代 OSS）
+comic:
+  storage:
+    # 本地存储根路径
+    local-path: ${COMIC_STORAGE_PATH:/data/comic-storage}
+    # 对外暴露的 URL 前缀（相对路径），由 StaticResourceConfig 映射到本地磁盘
+    url-prefix: /storage
+  # FFmpeg 可执行文件路径
+  ffmpeg:
+    path: ${FFMPEG_PATH:ffmpeg}
+
+# SpringDoc OpenAPI 文档
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    com.ai.comic: INFO
+    org.springframework.security: INFO

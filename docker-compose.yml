@@ -1,0 +1,70 @@
+# AI 漫剧制作网站 - 一键部署
+# 使用：docker compose up -d
+# 前置：在 .env 中填入 Agnes AI Key（参考 .env.example）
+version: "3.8"
+
+services:
+  # ============ MySQL 数据库 ============
+  mysql:
+    image: mysql:8.0
+    container_name: comic-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root123}
+      MYSQL_DATABASE: comic_db
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_PASSWORD:-root123}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ============ 后端服务 ============
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: comic-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DB: comic_db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root123}
+      JWT_SECRET: ${JWT_SECRET:-change-this-jwt-secret-in-production}
+      AGNES_KEY_01: ${AGNES_KEY_01:-}
+      AGNES_KEY_02: ${AGNES_KEY_02:-}
+      AGNES_KEY_03: ${AGNES_KEY_03:-}
+      COMIC_STORAGE_PATH: /data/comic-storage
+      FFMPEG_PATH: ffmpeg
+      TZ: Asia/Shanghai
+    ports:
+      - "8080:8080"
+    volumes:
+      - comic_storage:/data/comic-storage
+
+  # ============ 前端服务 ============
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: comic-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  mysql_data:
+  comic_storage:
