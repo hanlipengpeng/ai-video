@@ -6,6 +6,8 @@
 > 状态：初稿
 >
 > **本版定位**：快速验证"小说→动漫"核心链路可行性，**砍掉登录复杂度与付费/会员/配额体系**，仅保留最小可用闭环。会员、计费、社区等放到验证通过后再做。
+>
+> **v1.2 更新**：补充角色/场景一致性方案、Agnes AI 多 Key 轮询限流方案。
 
 ---
 
@@ -24,6 +26,8 @@
 11. [项目规划与里程碑](#11-项目规划与里程碑)
 12. [风险与对策](#12-风险与对策)
 13. [Agnes AI 接入调研清单](#13-agnes-ai-接入调研清单开发前必须完成)
+14. [角色与场景一致性方案](#14-角色与场景一致性方案)
+15. [多 Key 轮询与限流方案](#15-多-key-轮询与限流方案)
 
 ---
 
@@ -230,22 +234,24 @@ AI 漫剧制作平台（MVP-Lite）
         └─> 粘贴小说文本
               └─> [文本AI] 生成剧本
                     └─> 用户编辑剧本
-                          └─> [文本AI] 拆解分镜（+ 抽取角色描述）
-                                └─> [图像AI] 逐分镜生成画面（并行）
-                                      └─> 用户可单张重新生成
-                                            └─> [视频AI] 逐分镜生成动态片段（并行）
-                                                  └─> FFmpeg 拼接 + 字幕
-                                                        └─> 下载 mp4
+                          └─> [文本AI] 拆解分镜 + 抽取角色清单
+                                └─> [图像AI] 生成角色参考图（并行）
+                                      └─> [图像AI] 逐分镜生成画面（并行，引用角色参考图）
+                                            └─> 用户可单张重新生成
+                                                  └─> [视频AI] 逐分镜生成动态片段（并行）
+                                                        └─> FFmpeg 拼接 + 字幕
+                                                              └─> 下载 mp4
 ```
 
-> 比起 v1.0，去掉"角色参考图生成"独立步骤（合并进分镜 Prompt）、去掉音乐/发布环节。
+> 角色参考图步骤在 v1.2 加回，用于一致性保证（见第 14 章）。若 Agnes AI 图像模型不支持 reference image，可降级跳过此步。
 
 ### 4.2 任务编排流程
 
 ```
 Project Job
-  ├─> ScriptJob（剧本生成） ── 串行 ──> StoryboardJob（分镜拆解，含角色描述）
-  ├─> FrameImageJob[]（分镜画面，并行，受全局并发上限约束）
+  ├─> ScriptJob（剧本生成） ── 串行 ──> StoryboardJob（分镜拆解 + 角色抽取）
+  ├─> CharacterImageJob[]（角色参考图，并行）
+  ├─> FrameImageJob[]（分镜画面，依赖角色图，并行，受全局并发上限约束）
   ├─> VideoClipJob[]（视频片段，依赖对应 FrameImage，并行）
   └─> ComposeJob（合成，依赖所有 VideoClip）
 ```
@@ -362,19 +368,22 @@ aigc-gateway
 
 ```
 user 1───* project 1───* storyboard 1───* frame_image
-                                      └─* video_clip
+       │             │                └─* video_clip
+       │             └─* character 1───* character_image
+       └─* api_key（系统级 Key 池，不归属用户）
                 project 1───* task_log
-                (本期不建 episode / character / membership / quota_record 独立表)
+                (本期不建 episode / membership / quota_record 独立表)
 ```
 
 > 简化说明：
 > - **不建 episode 表**：本期单集，剧本/分镜直接挂在 project 下。
-> - **不建 character 表**：角色描述由 AI 在分镜阶段直接写入 Prompt，不单独维护。
+> - **保留 character 表**：用于角色一致性方案，存储角色描述 + 参考图（见 14 章）。
 > - **保留 video_clip 表**：AI 视频片段需独立存储 URL 与状态，供 FFmpeg 拼接。
+> - **新增 api_key 表**：Agnes AI 多 Key 轮询池（见 15 章）。
 > - **不建 membership / quota_record 表**：本期不做付费与配额。
 > - 风格预设硬编码在代码 / 配置文件，不建表。
 
-### 6.2 核心表结构（共 5 张表）
+### 6.2 核心表结构（共 7 张表）
 
 #### 6.2.1 `user` 用户表
 
@@ -412,15 +421,31 @@ user 1───* project 1───* storyboard 1───* frame_image
 | id | bigint PK | |
 | project_id | bigint FK | |
 | seq | int | 分镜序号 |
-| prompt | text | 画面描述 Prompt（含角色外貌描述） |
+| prompt | text | 画面描述 Prompt |
 | dialogue | text | 台词（字幕） |
 | narration | text | 旁白 |
 | duration_sec | decimal(5,1) | 建议时长 |
+| character_ids | varchar(256) | 关联角色 ID，逗号分隔 |
+| scene_ref_id | bigint | 关联场景参考图 ID（可空，见 14 章） |
 | created_at | datetime | |
 
-> 不存 shot_type / character_ids（角色描述合并进 prompt）。
+#### 6.2.4 `character` 角色表
 
-#### 6.2.4 `frame_image` 分镜画面表
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | bigint PK | |
+| project_id | bigint FK | |
+| name | varchar(64) | 角色名 |
+| aliases | varchar(256) | 别名 |
+| appearance | text | 外貌描述（性别、年龄、发型、服饰、特征） |
+| personality | text | 性格关键词 |
+| reference_image_url | varchar(256) | 角色标准参考图 URL |
+| status | varchar(16) | PENDING/READY |
+| created_at / updated_at | datetime | |
+
+> 用于角色一致性方案（见 14 章）。参考图由图像模型生成，作为后续分镜画面生成的 reference image 输入。
+
+#### 6.2.5 `frame_image` 分镜画面表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -429,12 +454,11 @@ user 1───* project 1───* storyboard 1───* frame_image
 | image_url | varchar(256) | |
 | prompt | text | 实际使用的 Prompt |
 | seed | bigint | |
+| reference_image_urls | varchar(512) | 引用的角色/场景参考图 URL，逗号分隔 |
 | status | varchar(16) | GENERATING/SUCCESS/FAILED |
 | created_at | datetime | |
 
-> 不存 selected（一个分镜就一张图，成功即用）。
-
-#### 6.2.5 `video_clip` 视频片段表
+#### 6.2.6 `video_clip` 视频片段表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -448,16 +472,17 @@ user 1───* project 1───* storyboard 1───* frame_image
 
 > 一个分镜一个片段，成功即用于最终拼接。
 
-#### 6.2.6 `task_log` 任务日志表
+#### 6.2.7 `task_log` 任务日志表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | bigint PK | |
 | user_id | bigint FK | |
 | project_id | bigint FK | |
-| biz_type | varchar(32) | SCRIPT/STORYBOARD/FRAME/VIDEO/COMPOSE |
+| biz_type | varchar(32) | SCRIPT/STORYBOARD/CHARACTER_IMG/FRAME/VIDEO/COMPOSE |
 | biz_id | bigint | 关联业务 ID |
 | model | varchar(64) | 调用的 Agnes 模型 |
+| api_key_id | bigint FK | 本次调用使用的 Key（见 15 章） |
 | provider_task_id | varchar(128) | Agnes 返回的任务 ID |
 | status | varchar(16) | PENDING/RUNNING/SUCCESS/FAILED |
 | progress | int | 0-100 |
@@ -467,14 +492,29 @@ user 1───* project 1───* storyboard 1───* frame_image
 | started_at / finished_at | datetime | |
 | created_at | datetime | |
 
-> 不存 cost_quota（无配额体系）。
+#### 6.2.8 `api_key` Agnes AI Key 池表
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | bigint PK | |
+| name | varchar(64) | Key 标识（如 agnes-key-01） |
+| api_key | varchar(256) | 加密存储的 Key |
+| status | varchar(16) | ACTIVE/COOLED/DISABLED |
+| cooled_until | datetime | 冷却截止时间（限流时设置） |
+| total_calls | bigint | 累计调用次数（统计用） |
+| last_used_at | datetime | 最后使用时间 |
+| created_at / updated_at | datetime | |
+
+> Key 池为系统级，不归属用户。详见第 15 章。
 
 ### 6.3 索引设计要点
 
-- `task_log`：`(user_id, status, created_at)`、`(biz_type, biz_id)`
+- `task_log`：`(user_id, status, created_at)`、`(biz_type, biz_id)`、`(api_key_id, created_at)`
 - `storyboard`：`(project_id, seq)`
 - `frame_image`：`(storyboard_id, status)`
 - `video_clip`：`(storyboard_id, status)`
+- `character`：`(project_id, status)`
+- `api_key`：`(status, cooled_until)`
 - `project`：`(user_id, status)`
 
 ---
@@ -530,9 +570,13 @@ user 1───* project 1───* storyboard 1───* frame_image
 | PUT | `/projects/{id}/script` | 更新剧本 JSON |
 | POST | `/projects/{id}/storyboard/generate` | 生成分镜（返回 taskId） |
 | GET | `/projects/{id}/storyboard` | 获取分镜列表 |
-| PUT | `/storyboard/{id}` | 更新单个分镜（Prompt/台词/时长） |
+| PUT | `/storyboard/{id}` | 更新单个分镜（Prompt/台词/时长/关联角色） |
+| POST | `/projects/{id}/characters/extract` | 从剧本抽取角色（返回 taskId） |
+| GET | `/projects/{id}/characters` | 角色列表 |
+| PUT | `/characters/{id}` | 更新角色（外貌描述等） |
+| POST | `/characters/{id}/image/generate` | 生成角色参考图（返回 taskId） |
 
-> 不做角色抽取、角色图生成接口（合并进分镜 Prompt）。
+> 角色一致性方案依赖角色参考图，详见第 14 章。
 
 #### 7.2.4 媒体生成
 
@@ -761,10 +805,12 @@ GET /api/v1/tasks/tsk_20260726_0001
 | --- | --- | --- |
 | **Agnes AI 无完整文档** | 无法对接，阻塞开发 | 开发前先按第 13 章做接口调研/探活，必要时联系对方拿文档 |
 | **视频模型不支持"图生视频"** | 链路断 | 调研确认；若仅支持"文生视频"，则视频任务只用 Prompt 不用图 |
+| **图像模型不支持 reference image** | 角色一致性差 | 走方案 A（纯文本描述固化）；见第 14 章 |
+| **单 Key 触发限流（429）** | 任务失败率高 | 多 Key 轮询池 + 限流冷却 + 自动切换；见第 15 章 |
 | Agnes AI 视频模型成本高/速度慢 | 验证成本高、体验差 | 全局并发上限 ≤3；单集分镜数限制（如 ≤10）；前端明确进度反馈 |
-| 角色一致性差 | 产出质量低 | 暂不强求，把角色外貌描述写进每张分镜 Prompt |
+| 角色一致性不达标 | 产出质量低 | 优先走方案 B（参考图）；失败降级方案 A；验收标准见 14.6 |
 | AI 结果不可控 | 用户流失 | 全流程可重新生成，分镜 Prompt 可手动编辑 |
-| 并发误操作打爆账单 | 成本风险 | 后端全局并发上限 + 单用户串行提交 |
+| 并发误操作打爆账单 | 成本风险 | 双层限流（全局 + Key 级）+ 单用户串行提交 |
 | 内容合规 | 法律风险 | 本期内网验证不公开，依赖 Agnes AI 过滤；上线前补审核 |
 | 模型供应商锁定 | 切换成本 | AIGC 接入层抽象（接口预留），后续可换 |
 
@@ -815,8 +861,9 @@ GET /api/v1/tasks/tsk_20260726_0001
 - [ ] 用户能注册、登录（用户名 + 密码）
 - [ ] 能创建项目（选画风），粘贴小说文本
 - [ ] 一键生成剧本（调用 Agnes AI 文本模型）
-- [ ] 一键生成分镜（含 Prompt、台词、时长）
-- [ ] 一键批量生成分镜画面（调用 Agnes AI 图像模型）
+- [ ] 一键生成分镜 + 抽取角色（含 Prompt、台词、时长、character_ids）
+- [ ] 角色参考图自动生成（若走方案 B）
+- [ ] 一键批量生成分镜画面（调用 Agnes AI 图像模型，引用角色参考图）
 - [ ] 单张画面可重新生成
 - [ ] 一键批量生成视频片段（调用 Agnes AI 视频模型）
 - [ ] 单个视频片段可重新生成
@@ -824,6 +871,9 @@ GET /api/v1/tasks/tsk_20260726_0001
 - [ ] 能下载最终 mp4
 - [ ] 任务进度有可视化展示
 - [ ] 全流程在一个页面内完成
+- [ ] **一致性验收**：同一角色在 5 个分镜中发型/服饰/瞳色人眼可识别为同一角色（见 14.6）
+- [ ] **多 Key 验收**：配置 ≥2 个 Key，人为打满单 Key 触发 429，系统自动切换到下一个 Key 继续完成任务
+- [ ] **限流降级**：所有 Key 同时冷却时，任务标记为 FAILED 并提示「服务繁忙」，不崩溃
 
 ---
 
@@ -838,7 +888,9 @@ GET /api/v1/tasks/tsk_20260726_0001
 | Base URL | `https://?` | 文本/图像/视频是否同一域名 |
 | 鉴权方式 | Header `Authorization: Bearer <key>`？自定义 header？ | |
 | 是否兼容 OpenAI 协议 | 是 / 否 | 若兼容，可直接用 OpenAI SDK |
-| 限流策略 | QPS / 并发上限 / 日配额 | 影响全局并发上限设置 |
+| **单 Key 限流策略** | **QPS / 并发上限 / 日配额** | **决定 Key 池规模与并发上限**（见 15 章） |
+| **多 Key 是否独立计费** | **同一账号下多 Key 是否各自独立配额** | **决定多 Key 轮询是否真的有效** |
+| **限流响应格式** | **429 状态码？响应体字段？Retry-After 头？** | 用于精确判断冷却时长 |
 | 计费方式 | 按次 / 按时长 / 按字符 / 按token | 影响成本预估 |
 | 错误码规范 | 4xx/5xx 含义、限流错误码 | 用于重试判断 |
 
@@ -894,6 +946,219 @@ GET /api/v1/tasks/tsk_20260726_0001
 4. `application.yml` 模板：base_url、key、各模型名、超时、并发上限的配置项。
 
 > **结论**：13.4 视频模型的"调用模式"和"同步/异步"是本次调研的两个决定性问题，答案直接决定 `video_clip` 表结构和 `VideoClipJob` 的实现方式。建议优先验证视频模型。
+
+---
+
+## 14. 角色与场景一致性方案
+
+### 14.1 问题定义
+
+AI 生成漫画的核心痛点：同一角色在不同分镜中长相/服饰不一致，同一场景在多个镜头中环境不一致，导致最终视频割裂感强。
+
+一致性包含两个维度：
+- **角色一致性**：林风在第 1 镜是黑发白衣少年，第 5 镜不能变成金发红衣。
+- **场景一致性**：山顶场景在多个镜头中地形、天空、光线风格统一。
+
+### 14.2 三档方案（按调研结果选型）
+
+#### 方案 A：纯文本描述固化（兜底，最低保障）
+
+- 适用：Agnes AI 图像模型**不支持** reference image。
+- 做法：
+  - 角色抽取阶段，为每个角色生成**固定外貌描述片段**（如「林风：18 岁少年，黑色长发束高马尾，白色武侠长袍，腰悬长剑，剑眉星目」）。
+  - 生成分镜画面时，把分镜中出现的所有角色的描述片段**强制拼接**到 Prompt 开头。
+  - 全项目固定 seed 范围、固定画风关键词、固定 negative prompt。
+- 效果：**风格统一，但角色长相只能"近似"，无法严格一致**。
+- 成本：无额外图像调用。
+
+#### 方案 B：角色参考图 + reference image（推荐，标准方案）
+
+- 适用：Agnes AI 图像模型**支持**图生图 / reference image / IP-Adapter。
+- 做法：
+  1. 角色抽取后，为每个角色调用图像模型生成一张**标准参考图**（半身像、正面、中性表情、纯背景），存入 `character.reference_image_url`。
+  2. 生成分镜画面时，把分镜涉及角色的参考图 URL 作为 `reference_image`（或 `image` + `denoising_strength`）传入图像模型。
+  3. Prompt 仍包含角色描述与场景描述，参考图用于"锁长相"。
+- 效果：**角色长相一致性显著提升**，是当前主流方案。
+- 成本：每个角色多 1 次图像调用。
+- 限制：参考图数量不宜过多，单张图引用 1~3 个角色参考图为宜（避免模型混乱）。
+
+#### 方案 C：场景参考图 + 风格 LoRA（进阶，M0 不做）
+
+- 适用：M2+ 阶段追求高一致性。
+- 做法：
+  - 为重要场景生成场景参考图，分镜引用。
+  - 训练项目级 LoRA（角色 + 风格联合），所有分镜共用。
+- 本期不做，预留接口。
+
+### 14.3 M0 阶段实施策略
+
+1. **优先调研 13.3 中的"是否支持 reference image"**：
+   - 支持 → 走方案 B（推荐）。
+   - 不支持 → 走方案 A（兜底）。
+2. **场景一致性**统一用方案 A：
+   - 画风预设固定（4 个预设，每个预设包含固定 prompt 片段 + negative prompt + 推荐种子范围）。
+   - 同一场景的分镜共享场景关键词（如「外景 山顶 黄昏」→ 固定片段 `mountain peak, golden hour, sea of clouds`）。
+3. **角色一致性**用方案 B：
+   - 角色抽取后自动生成参考图（可由用户编辑外貌描述后重新生成）。
+   - 分镜画面生成时，按 `character_ids` 自动注入对应参考图。
+4. **失败降级**：若参考图生成失败或模型临时不支持，自动降级为方案 A，不阻塞主流程。
+
+### 14.4 数据流
+
+```
+剧本生成
+  └─> 角色抽取（文本AI）─> character 表（name + appearance）
+        └─> 角色参考图生成（图像AI，方案B）─> character.reference_image_url
+              └─> 分镜拆解（文本AI）─> storyboard.character_ids
+                    └─> 分镜画面生成（图像AI）
+                          ├─ Prompt = 画风片段 + 场景片段 + 角色描述片段 + 镜头描述
+                          └─ reference_images = [角色参考图1, 角色参考图2, ...]
+```
+
+### 14.5 一致性相关 Prompt 模板
+
+**画风预设片段**（硬编码，按 `style_preset` 选择）：
+
+| 预设 | 正向片段 | 负向片段 |
+| --- | --- | --- |
+| 日漫 | `anime style, cel shading, vibrant color, detailed eyes, studio ghibli inspired` | `3d, realistic, photo, blurry` |
+| 国漫 | `chinese anime style, ink wash painting influence, dynamic composition, the legend of hei inspired` | `3d, western cartoon, photo` |
+| 美漫 | `american comic style, bold line art, high contrast, marvel inspired` | `anime, watercolor, photo` |
+| 写实 | `semi-realistic illustration, cinematic lighting, detailed texture, artgerm inspired` | `chibi, low detail, sketch` |
+
+**角色描述片段**（动态拼接）：
+
+```
+{character_name}: {age} years old, {gender}, {hair}, {clothing}, {distinctive_features}
+```
+
+例如：`Lin Feng: 18 years old, male, long black hair in high ponytail, white wuxia robe with silver embroidery, sword on waist, sharp eyes`
+
+### 14.6 验收标准
+
+- 同一角色在 5 个以上分镜中，**发型、服饰、瞳色**三项关键特征保持一致（人眼可识别为同一角色）。
+- 同一场景在多个分镜中，**色调、构图风格**统一。
+- 若走方案 A（兜底），验收标准放宽为"风格统一、角色描述无矛盾"。
+
+---
+
+## 15. 多 Key 轮询与限流方案
+
+### 15.1 背景与目标
+
+- Agnes AI 单 Key 存在调用频率限制（QPS / 并发 / 日配额），高频调用会触发 429 限流。
+- 目标：通过 **多 Key 轮询池** + **限流冷却** + **失败自动切换**，在合规前提下提升整体吞吐。
+
+### 15.2 Key 池架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   AIGC 接入层（aigc-gateway）            │
+│                                                         │
+│   业务调用 ──> KeySelector ──> 选取可用 Key ──> 调用 AI │
+│                    │                                    │
+│                    ├─ 状态：ACTIVE / COOLED / DISABLED │
+│                    ├─ 策略：轮询 / 最少使用 / 随机      │
+│                    └─ 监控：429 → 冷却 → 切换下一个     │
+│                                                         │
+│   KeyPool（内存 + DB 持久化）                           │
+│   ├─ key-01 [ACTIVE]   last_used: 10:00                │
+│   ├─ key-02 [COOLED]   cooled_until: 10:05             │
+│   ├─ key-03 [ACTIVE]   last_used: 10:01                │
+│   └─ key-04 [DISABLED] 失效/欠费                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 15.3 Key 状态机
+
+```
+            ┌──────────────────────────────────────┐
+            ▼                                      │
+ACTIVE ──(429/限流)──> COOLED ──(冷却到期)──> ACTIVE
+   │                                      │
+   │                                      │
+   └──(401/欠费/失效)──> DISABLED          │
+                          ▲                │
+                          └──(人工启用)────┘
+```
+
+| 状态 | 含义 | 触发条件 |
+| --- | --- | --- |
+| `ACTIVE` | 可用 | 默认；冷却到期自动恢复 |
+| `COOLED` | 临时不可用，等待冷却 | 收到 429 / 超过 QPS |
+| `DISABLED` | 永久不可用 | 401 鉴权失败 / 欠费 / 人工禁用 |
+
+### 15.4 选 Key 策略
+
+- **轮询（Round-Robin）**：在 `ACTIVE` 状态的 Key 中按顺序选，简单均衡，M0 默认采用。
+- **最少使用（LFU）**：选 `total_calls` 最少的，避免单 Key 过载。
+- **随机**：随机选一个 `ACTIVE` Key，避免抖动。
+
+### 15.5 限流响应处理
+
+调用 Agnes AI 返回 429 时：
+
+1. 当前 Key 标记为 `COOLED`，`cooled_until = now + 冷却时长`（默认 60s，可配置）。
+2. 自动从剩余 `ACTIVE` Key 中选一个**重试本次调用**（最多重试 N 次，N = Key 数 - 1）。
+3. 若所有 Key 都进入 `COOLED`，本次调用直接失败，任务标记为 `FAILED`，提示「服务繁忙，请稍后重试」。
+4. `task_log` 记录 `api_key_id`，便于追溯每个 Key 的使用情况。
+
+### 15.6 并发控制（双层限流）
+
+| 层级 | 维度 | 默认值 | 实现 |
+| --- | --- | --- | --- |
+| 全局 | 系统级并发上限 | 3（图像/视频各 3） | 后端信号量 / 线程池 |
+| Key 级 | 单 Key 并发上限 | 按 Agnes AI 文档，未知则默认 2 | KeySelector 中按 Key 计数 |
+
+> 单 Key 并发上限需在 13 章调研时确认 Agnes AI 的实际限制。
+
+### 15.7 配置示例（application.yml）
+
+```yaml
+agnes:
+  ai:
+    base-url: https://api.agnes-ai.com
+    timeout-sec: 120
+    keys:
+      - name: agnes-key-01
+        api-key: ${AGNES_KEY_01}
+      - name: agnes-key-02
+        api-key: ${AGNES_KEY_02}
+      - name: agnes-key-03
+        api-key: ${AGNES_KEY_03}
+    rate-limit:
+      global-concurrency: 3      # 全局并发上限
+      key-concurrency: 2         # 单 Key 并发上限（待调研确认）
+      cool-down-sec: 60          # 限流冷却时长
+      retry-on-429: true         # 收到 429 自动切换 Key 重试
+    models:
+      text: agnes-text-pro
+      image: agnes-image-pro
+      video: agnes-video-pro
+```
+
+### 15.8 Key 管理接口（可选，本期可仅靠配置文件）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/admin/keys` | Key 池状态列表（状态、最后使用、累计调用） |
+| POST | `/admin/keys` | 新增 Key |
+| PUT | `/admin/keys/{id}` | 启用/禁用 Key |
+| DELETE | `/admin/keys/{id}` | 删除 Key |
+
+> 本期不做后台管理页面的可只靠 `application.yml` + `api_key` 表（启动时加载到内存），通过改配置 + 重启生效；接口预留。
+
+### 15.9 监控指标
+
+| 指标 | 用途 |
+| --- | --- |
+| 各 Key 状态实时分布 | 运维查看 |
+| 各 Key 累计调用次数 | 成本核算 |
+| 429 触发次数 | 评估 Key 数是否足够 |
+| 平均冷却时长 | 调整冷却参数 |
+| 任务因"所有 Key 冷却"失败次数 | 扩容 Key 的信号 |
+
+> 本期监控仅落库（`api_key` 表 + `task_log` 表），可视化看板放到 M2 后台管理。
 
 ---
 
