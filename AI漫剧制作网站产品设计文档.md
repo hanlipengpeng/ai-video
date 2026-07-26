@@ -1,9 +1,11 @@
 # AI 漫剧制作网站产品设计文档
 
-> 版本：v1.0
+> 版本：v1.1（快速验证版 / MVP-Lite）
 > 日期：2026-07-26
 > 文档类型：产品设计文档（PRD + 系统设计）
 > 状态：初稿
+>
+> **本版定位**：快速验证"小说→动漫"核心链路可行性，**砍掉登录复杂度与付费/会员/配额体系**，仅保留最小可用闭环。会员、计费、社区等放到验证通过后再做。
 
 ---
 
@@ -40,9 +42,12 @@
 
 | 阶段 | 目标 |
 | --- | --- |
-| 短期（MVP） | 打通"小说→剧本→分镜→图片→视频"完整链路，支持单集短剧生成 |
-| 中期 | 支持多集连续剧、角色一致性、风格库、社区分享 |
-| 长期 | 形成创作者生态，支持付费分发、版权交易、IP 孵化 |
+| **当前阶段（快速验证）** | 以最小代价打通"小说→剧本→分镜→图片→视频"链路，验证 Agnes AI 各模型效果与端到端体验 |
+| 后续 MVP | 多集、角色一致性、风格库、内容审核完善 |
+| 中期 | 社区分享、多模型供应商 |
+| 长期 | 付费分发、版权交易、IP 孵化 |
+
+> 本文档聚焦"快速验证"阶段，登录、付费、会员、配额、社区等均不在本期范围。
 
 ### 1.4 名词解释
 
@@ -83,127 +88,127 @@
 
 ## 3. 核心功能模块
 
-### 3.1 功能架构总览
+### 3.1 功能架构总览（快速验证版）
 
 ```
-AI 漫剧制作平台
-├── 账户模块
-│   ├── 注册 / 登录（手机号、邮箱、第三方）
-│   ├── 个人中心
-│   └── 会员 / 积分 / 配额
+AI 漫剧制作平台（MVP-Lite）
+├── 账户模块（极简）
+│   ├── 注册 / 登录（用户名 + 密码，单方式即可）
+│   └── 退出登录
+│   ✗ 不做：手机号/邮箱验证、第三方登录、找回密码、会员、配额
 ├── 项目管理模块
-│   ├── 项目（剧集）创建 / 列表 / 删除
-│   └── 多集管理
-├── 内容创作模块（核心）
-│   ├── 小说导入（粘贴 / 上传 txt / 在线编写）
+│   ├── 项目创建 / 列表 / 删除
+│   └── 单集即可（不做多集）
+├── 内容创作模块（核心，必须打通）
+│   ├── 小说导入（粘贴文本为主，txt 上传可选）
 │   ├── 剧本生成（文本 AI）
 │   ├── 分镜拆解（文本 AI）
-│   ├── 角色设定管理（文本 AI + 图像 AI）
+│   ├── 角色设定（文本 AI，参考图可选）
 │   ├── 画面生成（图像 AI）
-│   └── 视频合成（视频 AI + 转场 + 字幕）
-├── 编辑器模块
-│   ├── 分镜编辑器（剧本 / 画面描述 / 字幕）
-│   ├── 画面编辑器（重绘 / 局部修改 / 角色替换）
-│   └── 时间轴编辑器（镜头顺序 / 时长 / 转场）
-├── 资源库模块
-│   ├── 风格库（画风预设）
-│   ├── 角色库（角色一致性参考图）
-│   ├── 音乐 / 音效库
-│   └── 素材收藏
+│   └── 视频合成（视频 AI 或静态合成二选一）
+├── 编辑器模块（轻量）
+│   ├── 分镜列表编辑（Prompt / 台词 / 时长）
+│   └── 画面重新生成（重试即可，不做局部修改）
+│   ✗ 不做：时间轴拖拽、局部重绘、角色替换
+├── 资源库模块（极简）
+│   └── 风格预设（硬编码几个即可）
+│   ✗ 不做：音乐库、音效库、角色库
 ├── 渲染导出模块
-│   ├── 视频渲染任务
-│   ├── 多分辨率导出（720p / 1080p / 竖屏 / 横屏）
-│   └── 一键发布
-├── 社区 / 分享模块（中期）
-│   ├── 作品广场
-│   ├── 点赞 / 评论 / 收藏
-│   └── 模板分享
-└── 后台管理模块
-    ├── 用户管理
-    ├── 内容审核
-    ├── 模型配置（Agnes AI 密钥 / 模型版本）
-    ├── 任务监控
-    └── 数据统计
+│   ├── 视频合成（固定 1080p 竖屏或横屏其一）
+│   └── 下载 mp4
+│   ✗ 不做：多分辨率、一键发布到第三方平台
+├── 任务中心（必要）
+│   └── 任务进度查看（异步 AI 任务）
+│   ✗ 不做：取消、重试策略复杂化
+└── 后台管理（极简或暂不做）
+    └── Agnes AI 密钥配置（写在配置文件即可）
+    ✗ 不做：用户管理、内容审核后台、数据统计
 ```
+
+> 标记 ✗ 的为本期明确不做，待核心链路验证通过后再补。
 
 ### 3.2 核心功能详述
 
-#### 3.2.1 小说导入
+#### 3.2.1 账户（极简）
 
-- 支持粘贴文本、上传 txt/md 文件、在线富文本编辑。
-- 单次输入上限：MVP 阶段 5000 字（约 1 集短视频容量）。
-- 自动识别章节标题，支持按章节拆分多集。
+- 注册：用户名 + 密码（明文入库？否，BCrypt 哈希）。
+- 登录：用户名 + 密码 → 返回 JWT。
+- 退出：前端丢弃 token 即可。
+- **不做**：手机号/邮箱、验证码、第三方登录、找回密码、个人资料编辑。
 
-#### 3.2.2 剧本生成（文本 AI）
+#### 3.2.2 小说导入
+
+- **以粘贴文本为主**，提供 txt 文件上传（可选）。
+- 单次输入上限：5000 字（约 1 集短视频容量）。
+- 不做富文本编辑、章节识别、多集拆分。
+
+#### 3.2.3 剧本生成（文本 AI）
 
 - 调用 Agnes AI 文本生成模型，将小说原文改写为剧本结构。
-- 输出字段：
-  - 场景标题（Scene）
-  - 场景描述（环境、时间、氛围）
+- 输出字段（精简）：
+  - 场景标题
+  - 场景描述
   - 角色对白（角色名 + 台词）
   - 旁白
-  - 镜头建议（近景/远景/特写）
-- 用户可对生成结果进行编辑、重新生成单条。
+- 用户可编辑生成结果，或整体重新生成。不做单条重新生成。
 
-#### 3.2.3 分镜拆解（文本 AI）
+#### 3.2.4 分镜拆解（文本 AI）
 
-- 将剧本按镜头单元拆分为分镜列表。
-- 每个分镜包含：
+- 将剧本拆为分镜列表。
+- 每个分镜：
   - 分镜编号
-  - 镜头类型（特写/近景/中景/远景）
-  - 画面描述（Prompt，用于图像生成）
-  - 角色列表（引用角色库）
-  - 台词 / 旁白（用于字幕与配音）
+  - 画面描述 Prompt（用于图像生成）
+  - 台词 / 旁白（用于字幕）
   - 建议时长（秒）
-- 支持用户手动增删、调整顺序、修改 Prompt。
+- 镜头类型可省略或由 AI 直接给到 Prompt 中。
+- 支持手动修改 Prompt、调整顺序。不做增删分镜（先简化）。
 
-#### 3.2.4 角色设定管理（文本 AI + 图像 AI）
+#### 3.2.5 角色设定（文本 AI，参考图可选）
 
-- 从剧本中自动抽取角色清单。
-- 每个角色维护：
-  - 角色名 / 别名
-  - 外貌描述（性别、年龄、发型、服饰、特征）
-  - 性格关键词
-  - 角色参考图（图像 AI 生成，用于一致性保持）
-- 角色参考图作为后续画面生成的 reference image 输入，保证多分镜角色一致。
+- 从剧本中抽取角色名 + 一句话外貌描述。
+- **角色参考图本期可选**：
+  - 若 Agnes AI 图像模型支持 reference image，则生成参考图用于一致性。
+  - 若链路过长，先跳过参考图，仅靠 Prompt 描述，验证主流程。
+- 不做角色库管理页面，角色信息随项目存储即可。
 
-#### 3.2.5 画面生成（图像 AI）
+#### 3.2.6 画面生成（图像 AI）
 
-- 基于分镜 Prompt + 角色参考图 + 风格预设，调用 Agnes AI 图像生成模型。
-- 每个分镜默认生成 1 张主画面，可生成多张供选择。
-- 支持参数：画风、宽高比（横屏 16:9 / 竖屏 9:16）、seed。
-- 支持重绘、局部修改（inpaint）、放大（upscale）。
+- 基于分镜 Prompt + 风格预设，调用 Agnes AI 图像生成模型。
+- 每个分镜生成 1 张画面（不支持多张候选，简化）。
+- 固定宽高比（建议竖屏 9:16，适配短视频平台）。
+- 支持整批生成 + 单张"重新生成"。不做局部修改、放大。
 
-#### 3.2.6 视频合成（视频 AI + 后处理）
+#### 3.2.7 视频合成（视频 AI 或静态合成，二选一）
 
-两种模式：
-- **AI 视频生成模式**：调用 Agnes AI 视频生成模型，基于静态画面 + 文本描述生成动态视频片段。
-- **合成模式**：静态画面 + Ken Burns 运镜 + 转场 + 字幕 + 配音，本地合成。
+> 推荐先做"静态合成"跑通链路，再叠加 AI 视频生成。
 
-视频片段产出后：
-- 拼接为完整剧集视频。
-- 叠加字幕（来自分镜台词）。
-- 叠加背景音乐 / 音效（来自资源库）。
-- 输出多种分辨率与画幅。
+- **方案 A（推荐先做）：静态合成**
+  - 静态画面 + Ken Burns 运镜（缩放/平移）+ 简单转场（淡入淡出）+ 字幕。
+  - 后端 FFmpeg 拼接为 mp4。
+  - 优点：不依赖视频 AI，链路短、成本低、可快速验证。
+- **方案 B（后续叠加）：AI 视频生成**
+  - 调用 Agnes AI 视频模型，基于静态画面 + Prompt 生成动态片段。
+  - 再拼接 + 字幕。
+- 输出固定 1080p 竖屏 mp4，提供下载链接。不做多分辨率。
 
 ### 3.3 辅助功能
 
-#### 3.3.1 任务中心
+#### 3.3.1 任务中心（必要）
 
-- 所有 AI 生成任务（文本/图像/视频）异步执行，统一在任务中心查看进度。
-- 支持任务失败重试、取消、查看日志。
+- 所有 AI 生成任务（文本/图像/视频）异步执行。
+- 提供任务列表 + 进度查看。
+- 失败可点击"重试"，不做取消、不做日志详情。
 
-#### 3.3.2 配额与计费
+#### 3.3.2 内容审核（本期可降级）
 
-- 每类生成任务消耗对应积分（文本<图像<视频）。
-- 免费用户每日配额，会员用户按套餐发放配额。
-- 配额扣减在任务发起时预扣，失败返还。
+- 文本输入做最简敏感词过滤（本地词库即可）。
+- 图像/视频审核暂不接入，依赖 Agnes AI 自身过滤。
+- 上线前再补正式审核流程。
 
-#### 3.3.3 内容审核
+#### 3.3.3 配额与计费
 
-- 文本输入与生成内容进行敏感词检测。
-- 图像 / 视频生成结果接入图像审核。
-- 违规内容拦截并提示用户。
+- **本期不做。** 不做积分、不做会员、不做配额限制。
+- 仅在后端做最简单的全局并发限流（防止误操作打爆 Agnes AI 账单）。
 
 ---
 
@@ -212,77 +217,73 @@ AI 漫剧制作平台
 ### 4.1 主创作流程（Happy Path）
 
 ```
-用户登录
-  └─> 创建项目（剧集）
-        └─> 导入小说文本
+登录（用户名+密码）
+  └─> 创建项目
+        └─> 粘贴小说文本
               └─> [文本AI] 生成剧本
                     └─> 用户编辑剧本
-                          └─> [文本AI] 拆解分镜 + 抽取角色
-                                └─> [图像AI] 生成角色参考图
-                                      └─> [图像AI] 逐分镜生成画面
-                                            └─> 用户编辑/重绘画面
-                                                  └─> [视频AI] 生成动态片段
-                                                        └─> 拼接 + 字幕 + 音乐
-                                                              └─> 渲染导出
-                                                                    └─> 发布/下载
+                          └─> [文本AI] 拆解分镜（+ 抽取角色描述）
+                                └─> [图像AI] 逐分镜生成画面（并行）
+                                      └─> 用户可单张重新生成
+                                            └─> 合成视频（静态合成 / AI 视频）
+                                                  └─> 下载 mp4
 ```
 
-### 4.2 任务编排流程
+> 比起 v1.0，去掉"角色参考图生成"独立步骤（合并进分镜 Prompt）、去掉音乐/发布环节。
 
-由于一个项目涉及大量 AI 调用，且存在依赖关系，采用任务编排器：
+### 4.2 任务编排流程（简化）
 
 ```
-Project Job（项目级任务）
-  ├─> ScriptJob（剧本生成） ── 串行 ──> StoryboardJob（分镜拆解）
-  │                                       └─> CharacterExtractJob（角色抽取）
-  │                                              └─> CharacterImageJob[]（角色图，并行）
-  ├─> FrameImageJob[]（分镜画面，依赖角色图，并行）
-  ├─> VideoClipJob[]（视频片段，依赖画面，并行）
-  └─> ComposeJob（合成，依赖所有 VideoClip）
+Project Job
+  ├─> ScriptJob（剧本生成） ── 串行 ──> StoryboardJob（分镜拆解，含角色描述）
+  ├─> FrameImageJob[]（分镜画面，并行）
+  └─> ComposeJob（合成，依赖所有 FrameImage）
 ```
 
-任务状态机：
+> 视频片段生成（VideoClipJob）本期用静态合成代替，不单独建任务。
+
+任务状态机（简化）：
 ```
 PENDING -> RUNNING -> SUCCESS
-         -> FAILED -> RETRYING -> SUCCESS/FAILED
-         -> CANCELED
+                 -> FAILED（前端可点"重试"重新提交）
 ```
+不做 CANCELED、不做 RETRYING 中间态。
 
 ### 4.3 状态流转
 
-项目状态：`DRAFT` → `SCRIPTING` → `STORYBOARDING` → `IMAGE_GENERATING` → `VIDEO_GENERATING` → `COMPOSING` → `READY` → `PUBLISHED`
+项目状态（简化）：`DRAFT` → `SCRIPTING` → `STORYBOARDING` → `IMAGE_GENERATING` → `COMPOSING` → `READY`
 
-用户可在任意阶段回退编辑。
+用户可在任意阶段回退编辑（修改后重新触发对应步骤）。
 
 ---
 
 ## 5. 系统架构设计
 
-### 5.1 总体架构
+### 5.1 总体架构（简化）
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                      前端（Vue 3）                        │
-│   项目管理 / 编辑器 / 任务中心 / 资源库 / 个人中心        │
+│        登录 / 项目列表 / 创作工作台 / 任务中心            │
 └────────────────────────┬─────────────────────────────────┘
                          │ HTTPS / WebSocket
 ┌────────────────────────▼─────────────────────────────────┐
-│                  API 网关 / Nginx                         │
+│                     Nginx                                │
 └────────────────────────┬─────────────────────────────────┘
                          │
 ┌────────────────────────▼─────────────────────────────────┐
-│              后端服务（Spring Boot）                      │
+│              后端服务（Spring Boot 单体）                 │
 │  ┌──────────┬──────────┬──────────┬──────────┐           │
-│  │ 账户服务 │ 项目服务 │ 创作服务 │ 渲染服务 │           │
+│  │ account  │ project  │ creation │  render  │           │
 │  ├──────────┼──────────┼──────────┼──────────┤           │
-│  │ 资源服务 │ 任务服务 │ 审核服务 │ 后台管理 │           │
+│  │  media   │   task   │  aigc    │ (其余暂略)│          │
 │  └──────────┴──────────┴──────────┴──────────┘           │
 └───┬──────────────────┬──────────────────┬────────────────┘
     │                  │                  │
     ▼                  ▼                  ▼
 ┌────────┐      ┌────────────┐      ┌──────────────┐
 │ MySQL  │      │   Redis    │      │ 对象存储 OSS │
-│ 业务数据│      │ 缓存/队列  │      │ 图片/视频/文件│
+│ 业务数据│      │ 任务队列   │      │ 图片/视频    │
 └────────┘      └────────────┘      └──────────────┘
                          │
                          ▼
@@ -292,20 +293,22 @@ PENDING -> RUNNING -> SUCCESS
                 └─────────────────┘
 ```
 
-### 5.2 模块划分
+> 本期采用 **Spring Boot 单体应用**，不做微服务拆分。Redis 可选（无 Redis 时用本地内存队列 + 数据库轮询）。
 
-| 模块 | 职责 |
-| --- | --- |
-| `account` | 注册登录、用户信息、权限、会员 |
-| `project` | 项目（剧集）、集管理 |
-| `creation` | 剧本、分镜、角色设定的生成与编辑 |
-| `media` | 图片、视频生成任务管理 |
-| `render` | 视频拼接、字幕、配乐、导出 |
-| `resource` | 风格库、角色库、音乐库 |
-| `task` | 任务编排、状态机、调度 |
-| `review` | 内容审核 |
-| `admin` | 后台管理 |
-| `aigc` | Agnes AI 统一接入层（封装鉴权、重试、限流） |
+### 5.2 模块划分（本期保留）
+
+| 模块 | 职责 | 本期范围 |
+| --- | --- | --- |
+| `account` | 注册登录、JWT | ✅ 极简 |
+| `project` | 项目 CRUD | ✅ 单集 |
+| `creation` | 剧本、分镜生成与编辑 | ✅ 核心 |
+| `media` | 图片生成任务 | ✅ 核心 |
+| `render` | 视频合成、导出 | ✅ 静态合成为主 |
+| `task` | 异步任务调度 | ✅ 简化版 |
+| `aigc` | Agnes AI 接入层 | ✅ 核心 |
+| `resource` | 风格预设 | ✅ 硬编码几个 |
+| `review` | 内容审核 | ⚠️ 仅文本敏感词 |
+| `admin` | 后台管理 | ❌ 暂不做 |
 
 ### 5.3 关键设计
 
@@ -347,103 +350,68 @@ aigc-gateway
 
 ## 6. 数据库设计
 
-### 6.1 ER 概览
+### 6.1 ER 概览（简化）
 
 ```
-user 1───* project 1───* episode 1───* storyboard
-                                      └─* frame_image
-                                      └─* video_clip
-                project 1───* character 1───* character_image
-                user 1───* quota_record
-                user 1───* membership
-                task_log（独立表）
-                resource_*（风格、音乐等字典表）
+user 1───* project 1───* storyboard 1───* frame_image
+                project 1───* task_log
+                (本期不建 episode / character / video_clip / membership / quota_record 独立表)
 ```
 
-### 6.2 核心表结构
+> 简化说明：
+> - **不建 episode 表**：本期单集，剧本/分镜直接挂在 project 下。
+> - **不建 character 表**：角色描述由 AI 在分镜阶段直接写入 Prompt，不单独维护。
+> - **不建 video_clip 表**：静态合成时直接由 frame_image 拼接，不存独立片段。
+> - **不建 membership / quota_record 表**：本期不做付费与配额。
+> - 风格预设硬编码在代码 / 配置文件，不建表。
+
+### 6.2 核心表结构（共 4 张表）
 
 #### 6.2.1 `user` 用户表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | bigint PK | 主键 |
-| username | varchar(64) | 用户名 |
-| phone | varchar(20) | 手机号 |
-| email | varchar(128) | 邮箱 |
-| password_hash | varchar(128) | 密码哈希 |
-| avatar_url | varchar(256) | 头像 |
-| status | tinyint | 状态 0禁用 1正常 |
-| created_at / updated_at | datetime | 时间 |
+| username | varchar(64) | 用户名（唯一） |
+| password_hash | varchar(128) | BCrypt 哈希 |
+| created_at | datetime | |
 
-#### 6.2.2 `membership` 会员表
+> 不存 phone / email / avatar / status，最简。
+
+#### 6.2.2 `project` 项目表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | bigint PK | |
 | user_id | bigint FK | |
-| plan | varchar(32) | FREE/PRO/STUDIO |
-| started_at | datetime | |
-| expired_at | datetime | |
-| quota_text | int | 文本配额 |
-| quota_image | int | 图像配额 |
-| quota_video | int | 视频配额 |
-
-#### 6.2.3 `project` 项目（剧集）表
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | bigint PK | |
-| user_id | bigint FK | |
-| title | varchar(128) | 剧集标题 |
-| cover_url | varchar(256) | 封面 |
-| description | text | 简介 |
-| style_preset | varchar(32) | 画风预设 |
-| aspect_ratio | varchar(8) | 16:9 / 9:16 |
-| status | varchar(16) | DRAFT/SCRIPTING/.../PUBLISHED |
+| title | varchar(128) | 标题 |
+| style_preset | varchar(32) | 画风预设 key |
+| aspect_ratio | varchar(8) | 固定 9:16 |
+| status | varchar(16) | DRAFT/SCRIPTING/STORYBOARDING/IMAGE_GENERATING/COMPOSING/READY |
 | source_text | longtext | 原始小说文本 |
+| script_content | longtext | 剧本 JSON |
+| final_video_url | varchar(256) | 最终视频 URL |
+| duration_sec | int | 视频时长 |
 | created_at / updated_at | datetime | |
 
-#### 6.2.4 `episode` 集表
+> 剧本直接存在 project 上，不单独建 script 表。
+
+#### 6.2.3 `storyboard` 分镜表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | bigint PK | |
 | project_id | bigint FK | |
-| episode_no | int | 集号 |
-| title | varchar(128) | |
-| script_content | longtext | 剧本 JSON |
-| final_video_url | varchar(256) | 最终视频 |
-| duration_sec | int | 时长 |
-| status | varchar(16) | |
-| created_at / updated_at | datetime | |
-
-#### 6.2.5 `storyboard` 分镜表
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | bigint PK | |
-| episode_id | bigint FK | |
 | seq | int | 分镜序号 |
-| shot_type | varchar(16) | 特写/近景/中景/远景 |
-| prompt | text | 画面描述 Prompt |
+| prompt | text | 画面描述 Prompt（含角色外貌描述） |
 | dialogue | text | 台词（字幕） |
 | narration | text | 旁白 |
 | duration_sec | decimal(5,1) | 建议时长 |
-| character_ids | varchar(256) | 关联角色 ID，逗号分隔 |
+| created_at | datetime | |
 
-#### 6.2.6 `character` 角色表
+> 不存 shot_type / character_ids（角色描述合并进 prompt）。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | bigint PK | |
-| project_id | bigint FK | |
-| name | varchar(64) | |
-| aliases | varchar(256) | 别名 |
-| appearance | text | 外貌描述 |
-| personality | text | 性格 |
-| reference_image_url | varchar(256) | 参考图 URL |
-
-#### 6.2.7 `frame_image` 分镜画面表
+#### 6.2.4 `frame_image` 分镜画面表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -453,62 +421,36 @@ user 1───* project 1───* episode 1───* storyboard
 | prompt | text | 实际使用的 Prompt |
 | seed | bigint | |
 | status | varchar(16) | GENERATING/SUCCESS/FAILED |
-| selected | tinyint | 是否选中用于视频 |
+| created_at | datetime | |
 
-#### 6.2.8 `video_clip` 视频片段表
+> 不存 selected（一个分镜就一张图，成功即用）。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | bigint PK | |
-| storyboard_id | bigint FK | |
-| frame_image_id | bigint FK | |
-| video_url | varchar(256) | |
-| duration_sec | decimal(5,1) | |
-| mode | varchar(16) | AI_VIDEO / KEN_BURNS |
-| status | varchar(16) | |
-
-#### 6.2.9 `task_log` 任务日志表
+#### 6.2.5 `task_log` 任务日志表
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | bigint PK | |
 | user_id | bigint FK | |
-| biz_type | varchar(32) | SCRIPT/STORYBOARD/CHARACTER_IMG/FRAME/VIDEO/COMPOSE |
+| project_id | bigint FK | |
+| biz_type | varchar(32) | SCRIPT/STORYBOARD/FRAME/COMPOSE |
 | biz_id | bigint | 关联业务 ID |
 | model | varchar(64) | 调用的 Agnes 模型 |
 | provider_task_id | varchar(128) | Agnes 返回的任务 ID |
-| status | varchar(16) | PENDING/RUNNING/SUCCESS/FAILED/CANCELED |
+| status | varchar(16) | PENDING/RUNNING/SUCCESS/FAILED |
 | progress | int | 0-100 |
 | input | longtext | 输入参数 JSON |
 | output | longtext | 输出结果 JSON |
 | error_msg | text | |
-| cost_quota | int | 消耗积分 |
 | started_at / finished_at | datetime | |
 | created_at | datetime | |
 
-#### 6.2.10 `quota_record` 配额流水表
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | bigint PK | |
-| user_id | bigint FK | |
-| type | varchar(16) | TEXT/IMAGE/VIDEO |
-| delta | int | 正数充值，负数消耗 |
-| reason | varchar(64) | 任务 ID / 套餐发放 |
-| balance_after | int | |
-| created_at | datetime | |
-
-#### 6.2.11 资源库表
-
-- `style_preset` 风格预设（name、prompt_fragment、cover）
-- `music_library` 音乐库（name、url、duration、category、license）
-- `sound_effect` 音效库
+> 不存 cost_quota（无配额体系）。
 
 ### 6.3 索引设计要点
 
 - `task_log`：`(user_id, status, created_at)`、`(biz_type, biz_id)`
-- `storyboard`：`(episode_id, seq)`
-- `frame_image`：`(storyboard_id, selected)`
+- `storyboard`：`(project_id, seq)`
+- `frame_image`：`(storyboard_id, status)`
 - `project`：`(user_id, status)`
 
 ---
@@ -532,104 +474,94 @@ user 1───* project 1───* episode 1───* storyboard
 - 分页统一参数：`page`、`size`，响应含 `total`、`list`。
 - 长任务接口统一返回 `taskId`，通过 `/tasks/{taskId}` 查询进度。
 
-### 7.2 接口清单（核心）
+### 7.2 接口清单（本期保留）
 
-#### 7.2.1 账户
+#### 7.2.1 账户（极简）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/auth/register` | 注册 |
-| POST | `/auth/login` | 登录 |
-| POST | `/auth/logout` | 登出 |
-| GET | `/users/me` | 当前用户信息 |
-| PUT | `/users/me` | 更新个人信息 |
-| GET | `/users/me/quota` | 查询配额 |
+| POST | `/auth/register` | 注册（用户名+密码） |
+| POST | `/auth/login` | 登录，返回 JWT |
+| GET | `/users/me` | 当前用户信息（仅用户名） |
+
+> 不做 logout 接口（前端丢弃 token）、不做个人资料更新、不做配额查询。
 
 #### 7.2.2 项目
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/projects` | 创建项目 |
-| GET | `/projects` | 项目列表 |
-| GET | `/projects/{id}` | 项目详情 |
-| PUT | `/projects/{id}` | 更新项目 |
+| GET | `/projects` | 项目列表（分页） |
+| GET | `/projects/{id}` | 项目详情（含剧本、最终视频） |
+| PUT | `/projects/{id}` | 更新项目（标题、画风、原文） |
 | DELETE | `/projects/{id}` | 删除项目 |
-| POST | `/projects/{id}/episodes` | 新增集 |
-| GET | `/projects/{id}/episodes` | 集列表 |
+
+> 不做 episode 接口（单集）。
 
 #### 7.2.3 创作
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/episodes/{id}/source-text` | 保存小说原文 |
-| POST | `/episodes/{id}/script/generate` | 生成剧本（返回 taskId） |
-| GET | `/episodes/{id}/script` | 获取剧本 |
-| PUT | `/episodes/{id}/script` | 更新剧本 |
-| POST | `/episodes/{id}/storyboard/generate` | 生成分镜（返回 taskId） |
-| GET | `/episodes/{id}/storyboard` | 获取分镜列表 |
-| PUT | `/storyboard/{id}` | 更新单个分镜 |
-| POST | `/projects/{id}/characters/extract` | 抽取角色（返回 taskId） |
-| GET | `/projects/{id}/characters` | 角色列表 |
-| PUT | `/characters/{id}` | 更新角色 |
-| POST | `/characters/{id}/image/generate` | 生成角色参考图（taskId） |
+| POST | `/projects/{id}/script/generate` | 生成剧本（返回 taskId） |
+| PUT | `/projects/{id}/script` | 更新剧本 JSON |
+| POST | `/projects/{id}/storyboard/generate` | 生成分镜（返回 taskId） |
+| GET | `/projects/{id}/storyboard` | 获取分镜列表 |
+| PUT | `/storyboard/{id}` | 更新单个分镜（Prompt/台词/时长） |
+
+> 不做角色抽取、角色图生成接口（合并进分镜 Prompt）。
 
 #### 7.2.4 媒体生成
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/storyboard/{id}/frame/generate` | 生成分镜画面（taskId） |
-| GET | `/storyboard/{id}/frames` | 分镜画面列表 |
-| POST | `/frames/{id}/regenerate` | 重绘 |
-| POST | `/frames/{id}/select` | 选用 |
-| POST | `/storyboard/{id}/video/generate` | 生成视频片段（taskId） |
+| POST | `/projects/{id}/frames/generate` | 整批生成分镜画面（返回 taskId） |
+| POST | `/storyboard/{id}/frame/regenerate` | 单张重新生成 |
+| GET | `/projects/{id}/frames` | 获取全部分镜画面 |
+
+> 不做多张候选、不做 select、不做视频片段单独生成（合成时直接用静态图）。
 
 #### 7.2.5 渲染导出
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/episodes/{id}/compose` | 合成整集视频（taskId） |
-| GET | `/episodes/{id}/export` | 导出下载链接 |
-| POST | `/episodes/{id}/publish` | 发布到广场（可选） |
+| POST | `/projects/{id}/compose` | 合成视频（返回 taskId） |
+| GET | `/projects/{id}/export` | 获取下载链接 |
+
+> 不做 publish（无社区）。
 
 #### 7.2.6 任务
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/tasks/{taskId}` | 任务状态与进度 |
-| GET | `/tasks` | 任务列表（分页） |
-| POST | `/tasks/{taskId}/cancel` | 取消任务 |
+| GET | `/tasks` | 任务列表（分页，按项目过滤） |
 | POST | `/tasks/{taskId}/retry` | 重试任务 |
-| WS | `/ws/task/{taskId}` | 任务进度 WebSocket 推送 |
+| WS | `/ws/task/{taskId}` | 任务进度 WebSocket 推送（可选） |
+
+> 不做 cancel。WebSocket 可用前端轮询替代以进一步简化。
 
 #### 7.2.7 资源库
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/resources/styles` | 风格预设列表 |
-| GET | `/resources/music` | 音乐列表 |
-| GET | `/resources/sfx` | 音效列表 |
+| GET | `/resources/styles` | 风格预设列表（硬编码几个） |
+
+> 不做音乐 / 音效库接口。
 
 #### 7.2.8 后台管理
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/admin/users` | 用户管理 |
-| GET | `/admin/tasks` | 任务监控 |
-| PUT | `/admin/config/aigc` | Agnes AI 配置 |
-| GET | `/admin/stats` | 数据统计 |
+> **本期不做。** Agnes AI 密钥等配置写在 `application.yml`，需要时改配置重启即可。
 
 ### 7.3 接口示例：生成剧本
 
 **请求**
 ```
-POST /api/v1/episodes/12345/script/generate
+POST /api/v1/projects/12345/script/generate
 Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "model": "agnes-text-pro",
-  "style": "热血少年",
-  "extraInstruction": "保留原著对白，强化动作描写"
+  "style": "热血少年"
 }
 ```
 
@@ -656,7 +588,7 @@ GET /api/v1/tasks/tsk_20260726_0001
     "taskId": "tsk_20260726_0001",
     "status": "SUCCESS",
     "progress": 100,
-    "result": { "scriptId": 8899 }
+    "result": { "projectId": 12345 }
   }
 }
 ```
@@ -665,193 +597,200 @@ GET /api/v1/tasks/tsk_20260726_0001
 
 ## 8. 前端页面设计
 
-### 8.1 页面清单
+### 8.1 页面清单（本期保留 5 个页面）
 
 | 页面 | 路由 | 说明 |
 | --- | --- | --- |
-| 首页 / 落地页 | `/` | 产品介绍、CTA |
-| 登录 / 注册 | `/login`, `/register` | |
-| 工作台 | `/dashboard` | 项目列表、配额、快捷入口 |
-| 项目详情 | `/project/:id` | 集列表、项目设置 |
-| 创作工作台 | `/studio/:episodeId` | **核心页面**：剧本/分镜/画面/视频编辑 |
-| 角色管理 | `/project/:id/characters` | 角色与参考图 |
-| 任务中心 | `/tasks` | 任务进度与历史 |
-| 资源库 | `/resources` | 风格、音乐、音效 |
-| 预览 / 导出 | `/studio/:episodeId/preview` | 视频预览与导出 |
-| 个人中心 | `/me` | 资料、会员、配额 |
-| 社区广场 | `/explore` | 作品广场（中期） |
-| 后台管理 | `/admin/*` | 管理后台 |
+| 登录 / 注册 | `/login` | 一个页面切换 Tab |
+| 项目列表 | `/` | 我的项目 + 新建按钮 |
+| 创作工作台 | `/studio/:projectId` | **核心页面**：原文→剧本→分镜→画面→视频→下载 |
+| 任务中心 | `/tasks` | 任务进度（可合并到工作台底部，独立页面可选） |
+| 风格预设 | （弹窗或下拉） | 选择画风，不单独建页 |
 
-### 8.2 核心页面：创作工作台布局
+> 不做：首页落地页、项目详情页（合并进工作台）、角色管理、资源库页、预览页（合并进工作台）、个人中心、社区广场、后台管理。
+
+### 8.2 核心页面：创作工作台布局（简化）
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  顶部栏：项目名 | 集号 | 保存 | 渲染导出 | 配额            │
-├──────┬──────────────────────────────┬──────────────────────┤
-│      │                              │                      │
-│ 左侧 │       中间编辑区              │     右侧面板         │
-│ 步骤 │  （根据步骤切换）             │   （属性/参数）       │
-│ 导航 │                              │                      │
-│      │  ① 剧本编辑器                │  - 模型选择          │
-│ 1剧本│  ② 分镜列表（卡片）          │  - 风格预设          │
-│ 2分镜│  ③ 画面预览（网格）          │  - 角色引用          │
-│ 3画面│  ④ 时间轴（视频片段）        │  - 画面参数          │
-│ 4视频│                              │  - 重绘/局部修改     │
-│ 5导出│                              │                      │
-│      │                              │                      │
-├──────┴──────────────────────────────┴──────────────────────┤
-│  底部：任务进度条 / WebSocket 实时状态                       │
+│  顶部栏：项目标题（可编辑）| 画风选择 | 合成视频 | 下载     │
+├──────┬─────────────────────────────────────────────────────┤
+│      │                                                     │
+│ 左侧 │       中间主区域（按步骤切换）                       │
+│ 步骤 │                                                     │
+│ 导航 │  ① 原文输入框（textarea）                           │
+│      │  ② 剧本展示（JSON 结构化卡片，可编辑）              │
+│ 1原文│  ③ 分镜列表（卡片：Prompt / 台词 / 时长）           │
+│ 2剧本│  ④ 画面网格（每分镜一张图 + 重新生成按钮）          │
+│ 3分镜│  ⑤ 视频预览（video 标签播放最终 mp4）               │
+│ 4画面│                                                     │
+│ 5视频│                                                     │
+│      │                                                     │
+├──────┴─────────────────────────────────────────────────────┤
+│  底部：当前任务进度条（轮询 /tasks/{id}）                   │
 └────────────────────────────────────────────────────────────┘
 ```
 
 ### 8.3 关键交互
 
-- **剧本→分镜**：点击"生成分镜"，左侧步骤推进，中间切换为分镜卡片视图，每张卡可编辑 Prompt、台词、时长。
-- **分镜→画面**：分镜卡上方点"生成画面"，进入画面网格视图，每分镜显示多张候选图，点击选用。
-- **画面重绘**：图片上悬浮操作按钮（重绘 / 局部修改 / 放大 / 替换角色）。
-- **视频时间轴**：底部时间轴展示各分镜视频片段顺序与时长，可拖拽排序、调整时长、添加转场。
-- **实时进度**：所有生成任务在底部状态栏与任务中心实时更新（WebSocket）。
+- **原文→剧本**：粘贴文本 → 点"生成剧本" → 步骤推进 → 剧本以卡片形式展示，可编辑后保存。
+- **剧本→分镜**：点"生成分镜" → 中间切换为分镜卡片列表，每张卡可编辑 Prompt、台词、时长。
+- **分镜→画面**：点"批量生成画面" → 网格视图显示每分镜一张图，单张可"重新生成"。
+- **画面→视频**：点"合成视频" → 后端 FFmpeg 拼接 → 完成后显示 video 播放器 + 下载按钮。
+- **进度**：底部固定任务进度条，前端每 2s 轮询 `/tasks/{id}`（WebSocket 可后续替换）。
 
-### 8.4 前端技术要点
+### 8.4 前端技术要点（精简）
 
 - Vue 3 + Composition API + TypeScript。
 - 路由：Vue Router 4。
 - 状态：Pinia。
-- UI：Element Plus / Naive UI（二选一）。
-- 富文本：Toast UI Editor 或自研轻量编辑器（剧本结构化编辑）。
-- 图像编辑：Fabric.js（局部修改、蒙版）。
-- 时间轴：自研组件或基于 wavesurfer / xgplayer 扩展。
-- 视频播放：西瓜播放器（xgplayer）。
-- 实时通信：原生 WebSocket 或 socket.io-client。
+- UI：Element Plus（推荐，组件齐全）。
+- 视频：原生 `<video>` 标签即可，无需复杂播放器。
+- HTTP：Axios。
 - 构建：Vite。
+
+> 不引入：富文本编辑器、Fabric.js、时间轴组件、西瓜播放器（本期都不需要）。
 
 ---
 
-## 9. 技术选型
+## 9. 技术选型（精简）
 
 ### 9.1 后端
 
 | 类别 | 选型 | 说明 |
 | --- | --- | --- |
-| 语言/框架 | Java 17 + Spring Boot 3 | |
+| 语言/框架 | Java 17 + Spring Boot 3 | 单体应用 |
 | ORM | MyBatis-Plus | 开发效率高 |
-| 数据库 | MySQL 8 | |
-| 缓存 | Redis 7 | 配额、任务队列、限流 |
-| 对象存储 | MinIO / 阿里云 OSS | 图片视频存储 |
-| 任务调度 | XXL-JOB 或 Spring Schedule | 定时与异步任务 |
-| 消息队列（可选） | RabbitMQ / Redis Stream | 解耦 AI 任务 |
-| 实时通信 | Spring WebSocket + STOMP | |
-| 鉴权 | Spring Security + JWT | |
-| 接口文档 | SpringDoc OpenAPI 3 | |
-| 视频处理 | FFmpeg | 拼接、字幕、转场 |
-| 日志 | Logback + ELK | |
+| 数据库 | MySQL 8 | 仅 4 张业务表 |
+| 缓存 | **本期不引入 Redis** | 任务用 DB 状态字段 + 内存线程池即可 |
+| 对象存储 | MinIO（自建，docker 一键起） | 图片视频存储；或本地磁盘 |
+| 任务调度 | Spring `@Async` + 线程池 | 异步执行 AI 任务 |
+| 鉴权 | Spring Security + JWT | 极简 |
+| 视频处理 | FFmpeg | Ken Burns + 字幕 + 拼接 |
+| 接口文档 | SpringDoc OpenAPI 3 | 可选 |
+
+> 不引入：XXL-JOB、RabbitMQ、WebSocket（前端轮询替代）、ELK。
 
 ### 9.2 AI 服务
 
-| 能力 | 来源 |
-| --- | --- |
-| 文本生成（剧本/分镜/角色） | Agnes AI 文本模型 |
-| 图像生成（角色图/分镜画面） | Agnes AI 图像模型 |
-| 视频生成（动态片段） | Agnes AI 视频模型 |
+| 能力 | 来源 | 本期必选 |
+| --- | --- | --- |
+| 文本生成（剧本/分镜） | Agnes AI 文本模型 | ✅ |
+| 图像生成（分镜画面） | Agnes AI 图像模型 | ✅ |
+| 视频生成 | Agnes AI 视频模型 | ⚠️ 可选，先做静态合成 |
 
-> Agnes AI 接入层需支持模型版本切换、密钥管理、调用计量。
+> Agnes AI 密钥、模型版本、base URL 写在 `application.yml`。
 
 ### 9.3 前端
 
 见 8.4。
 
-### 9.4 部署
+### 9.4 部署（极简）
 
 | 类别 | 选型 |
 | --- | --- |
-| 容器 | Docker |
-| 编排 | Docker Compose（MVP）/ K8s（规模化） |
-| 反向代理 | Nginx |
-| CI/CD | GitHub Actions / GitLab CI |
-| 监控 | Prometheus + Grafana |
+| 容器 | Docker Compose（springboot + mysql + minio + ffmpeg） |
+| 反向代理 | Nginx（可选，单机可直接暴露端口） |
+| 监控 | 暂不做 |
+
+> 一台 4C8G 服务器即可跑起整套验证环境。
 
 ---
 
-## 10. 非功能性需求
+## 10. 非功能性需求（本期降级）
 
 | 维度 | 要求 |
 | --- | --- |
-| 性能 | 普通接口 P95 < 300ms；AI 任务接口提交 < 1s |
-| 可用性 | 核心服务 99.9%；AI 任务失败可重试，不阻塞主流程 |
-| 并发 | MVP 支撑 500 在线用户、50 并发 AI 任务 |
-| 安全 | HTTPS、JWT、敏感词过滤、密钥加密存储、SQL 注入防护 |
-| 合规 | UGC 内容审核、用户协议、隐私政策、未成年人保护 |
-| 成本 | AI 调用成本可控，配额机制防止滥用 |
-| 扩展 | 模块化设计，AI 模型可替换（除 Agnes 外可扩展其他供应商） |
+| 性能 | 普通接口 P95 < 500ms 即可；AI 任务提交 < 2s |
+| 可用性 | 单机部署，挂了重启即可，不追求高可用 |
+| 并发 | 支撑 10 并发用户、5 并发 AI 任务即可验证 |
+| 安全 | JWT、密码 BCrypt、最简敏感词过滤；不做 HTTPS（内网验证） |
+| 合规 | 暂不接入正式审核，依赖 Agnes AI 自身过滤 |
+| 成本 | 后端做全局并发上限（如同时最多 3 个图像生成任务），防误打爆账单 |
 
 ---
 
 ## 11. 项目规划与里程碑
 
-| 阶段 | 范围 | 里程碑 |
+| 阶段 | 范围 | 状态 |
 | --- | --- | --- |
-| M1：MVP | 账户、项目、剧本/分镜/角色、画面生成、视频合成、导出 | 单集漫剧全链路打通 |
-| M2：编辑增强 | 画面重绘、局部修改、时间轴编辑、多分辨率导出 | 创作者可控性提升 |
-| M3：多集与角色一致性 | 多集管理、角色库、风格库、音乐库 | 支持连续剧生产 |
-| M4：社区与商业化 | 作品广场、分享、会员套餐、付费导出 | 商业闭环 |
-| M5：开放与生态 | 模板市场、API 开放、多模型供应商 | 平台化 |
+| **M0：快速验证（本文档对应）** | 极简登录 + 单集 + 静态合成 + 下载 | 设计中 |
+| M1：MVP | 多张候选图、AI 视频生成、内容审核、多分辨率 | 待启动 |
+| M2：编辑增强 | 画面重绘、局部修改、时间轴、角色一致性 | 待规划 |
+| M3：多集与角色库 | 多集管理、风格库、音乐库 | 待规划 |
+| M4：社区与商业化 | 作品广场、会员套餐、付费导出 | 待规划 |
+| M5：开放生态 | 模板市场、API 开放、多模型供应商 | 待规划 |
 
-> 本文档当前对应 M1 阶段产品设计。
+> M0 验证目标：**一个用户能在 10 分钟内完成"粘贴小说 → 拿到一段 mp4"**，且成本可控。
 
 ---
 
-## 12. 风险与对策
+## 12. 风险与对策（本期聚焦）
 
 | 风险 | 影响 | 对策 |
 | --- | --- | --- |
-| Agnes AI 调用成本高 | 毛利压力 | 配额机制 + 缓存复用 + 降级策略（静态合成代替视频生成） |
-| 视频生成耗时长 | 用户体验差 | 异步任务 + 进度推送 + 任务中心 |
-| 角色一致性差 | 产出质量低 | 角色参考图 + reference image + 风格锁定 |
-| 内容合规风险 | 法律风险 | 文本/图像/视频三级审核 + 用户协议 |
-| AI 结果不可控 | 用户流失 | 全流程可编辑、可重绘、可重新生成 |
-| 模型供应商锁定 | 切换成本高 | AIGC 接入层抽象，模型可插拔 |
-| 高并发任务积压 | 系统不稳 | 限流 + 队列 + 优先级调度 |
+| Agnes AI 视频模型成本高/速度慢 | 验证受阻 | 本期用静态合成代替，先跑通链路 |
+| 角色一致性差 | 产出质量低 | 暂不强求，把角色外貌描述写进每张分镜 Prompt |
+| AI 结果不可控 | 用户流失 | 全流程可重新生成，分镜 Prompt 可手动编辑 |
+| 并发误操作打爆账单 | 成本风险 | 后端全局并发上限 + 单用户串行提交 |
+| 内容合规 | 法律风险 | 本期内网验证不公开，依赖 Agnes AI 过滤；上线前补审核 |
+| 模型供应商锁定 | 切换成本 | AIGC 接入层抽象（接口预留），后续可换 |
 
 ---
 
-## 附录 A：剧本 JSON 结构示例
+## 附录 A：剧本 JSON 结构示例（简化）
 
 ```json
 {
   "title": "第一章 觉醒",
   "scenes": [
     {
-      "sceneNo": 1,
       "heading": "外景 山顶 黄昏",
-      "description": "夕阳染红云海，少年独立山巅，风卷衣角。",
+      "description": "夕阳染红云海，少年林风独立山巅，风卷衣角。",
       "dialogues": [
         { "character": "林风", "line": "终于到了。" }
       ],
-      "narration": "十年苦修，只为今日。",
-      "shotSuggestion": "远景转特写"
+      "narration": "十年苦修，只为今日。"
     }
   ]
 }
 ```
 
-## 附录 B：分镜 JSON 结构示例
+> 去掉 shotSuggestion（合并进分镜 Prompt）。
+
+## 附录 B：分镜 JSON 结构示例（简化）
 
 ```json
 {
   "storyboards": [
     {
       "seq": 1,
-      "shotType": "WIDE",
-      "prompt": "epic landscape, mountain peak at sunset, golden clouds, a young swordsman standing on the cliff, wind blowing his robe, cinematic lighting, anime style",
+      "prompt": "epic anime landscape, mountain peak at sunset, golden clouds, a young swordsman in white robe standing on the cliff, wind blowing his robe, cinematic lighting, vertical 9:16",
       "dialogue": "终于到了。",
       "narration": "十年苦修，只为今日。",
-      "durationSec": 4.0,
-      "characterIds": [101]
+      "durationSec": 4.0
     }
   ]
 }
 ```
 
+> 去掉 shotType、characterIds（角色描述直接写在 prompt 里）。
+
 ---
 
-> 本文档为产品设计阶段产出，后续将随开发迭代持续更新。
+## 附录 C：M0 验收清单
+
+- [ ] 用户能注册、登录（用户名 + 密码）
+- [ ] 能创建项目，粘贴小说文本
+- [ ] 一键生成剧本（调用 Agnes AI 文本模型）
+- [ ] 一键生成分镜（含 Prompt、台词、时长）
+- [ ] 一键批量生成分镜画面（调用 Agnes AI 图像模型）
+- [ ] 单张画面可重新生成
+- [ ] 一键合成视频（FFmpeg 静态合成 + 字幕）
+- [ ] 能下载最终 mp4
+- [ ] 任务进度有可视化展示
+- [ ] 全流程在一个页面内完成
+
+---
+
+> 本文档为 M0 快速验证阶段产品设计，后续将随开发迭代持续更新。
