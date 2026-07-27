@@ -2,6 +2,8 @@
 backend/target/
 frontend/dist/
 frontend/node_modules/
+# 前端构建产物输出到后端 static 目录（由构建生成，勿提交）
+backend/src/main/resources/static/
 **/*.class
 
 # ============ IDE ============

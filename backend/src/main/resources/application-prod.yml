@@ -1,0 +1,85 @@
+# ============================================================
+# 生产环境配置（--spring.profiles.active=prod 时生效）
+# 所有敏感值通过环境变量注入，环境变量来源：/opt/comic/.env
+# ============================================================
+
+server:
+  port: 81
+
+spring:
+  datasource:
+    # 部署在同机，走 127.0.0.1
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:comic_db}?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:studen}
+    password: ${MYSQL_PASSWORD:studenadmin}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+# MyBatis 生产环境关闭 SQL 日志
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+# JWT
+jwt:
+  secret: ${JWT_SECRET:Y29taWMtYmFja2VuZC1qd3Qtc2VjcmV0LWtleS1mb3ItYWktY29taWMtbWFrZS13ZWJzaXRlLW12cC0yMDI2}
+
+# Agnes AI（Key 通过环境变量注入）
+agnes:
+  ai:
+    base-url: https://apihub.agnes-ai.com/v1
+    timeout-sec: 120
+    keys:
+      - name: agnes-key-01
+        api-key: ${AGNES_KEY_01:}
+        plan: token-plan
+    rate-limit:
+      cool-down-sec: 60
+      retry-on-429: true
+      max-retries: 3
+    rpm:
+      free:
+        text: 20
+        image: 30
+        video: 1
+      token-plan:
+        text: 1000
+        image: 100
+        video: 5
+      enterprise:
+        text: 1000
+        image: 100
+        video: 5
+    models:
+      text: agnes-2.0-flash
+      image: agnes-image-2.1-flash
+      video: agnes-video-v2.0
+    video:
+      poll-interval-ms: 10000
+      max-poll-duration-ms: 300000
+      query-path: /agnesapi
+
+comic:
+  storage:
+    local-path: ${COMIC_STORAGE_PATH:/data/comic-storage}
+    url-prefix: /storage
+  ffmpeg:
+    path: ${FFMPEG_PATH:ffmpeg}
+
+logging:
+  level:
+    com.ai.comic: INFO
+    org.springframework.security: WARN
+  file:
+    name: /opt/comic/logs/comic.log
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
